@@ -11,16 +11,26 @@ def circles_intersect(c1, c2):
 
 class Ptpx2023Sketch(vsketch.SketchClass):
     # Sketch parameters:
-    x_points = vsketch.Param(165, 10, 500)
-    y_points = vsketch.Param(105, 10, 500)
-    magnitude = vsketch.Param(0.02, 0, 1.0)
-    scale = vsketch.Param(10, 0, 20)
-    stars = vsketch.Param(10, 0, 500)
+    x_points = vsketch.Param(220, 10, 500)
+    y_points = vsketch.Param(140, 10, 500)
+    slant = vsketch.Param(0.25, 0, 1.0)
+    tails = vsketch.Param(5, 0, 10)
+    box = vsketch.Param(True)
+    magnitude = vsketch.Param(0.01, 0, 1.0)
+    scale = vsketch.Param(20, 0, 50)
+    num_stars = vsketch.Param(90, 0, 500)
     min_radius = vsketch.Param(0.1, 0, 1.0)
-    max_radius = vsketch.Param(0.5, 0, 1.0)
+    max_radius = vsketch.Param(0.2, 0, 1.0)
 
-    def star(self, xoff, yoff, r, thoff):
-        points = []
+    border = shapely.geometry.box(0.25, 0.25, 5.75, 3.75)
+
+    def star(self, vsk):
+        xoff = vsk.random(6)
+        yoff = vsk.random(4)
+        r = vsk.random(self.min_radius, self.max_radius)
+        thoff = vsk.random(math.pi)
+        length = vsk.random(r * self.tails, r * self.tails * 2)
+        star_points = []
         for i in range(10):
             th = thoff + i * 2 * math.pi / 10
             x = math.cos(th)
@@ -31,22 +41,30 @@ class Ptpx2023Sketch(vsketch.SketchClass):
             else:
                 x *= r
                 y *= r
-            points.append((x + xoff, y + yoff))
-        return shapely.Polygon(points)
+            star_points.append((x + xoff, y + yoff))
+        # slant more toward the top
+        # slant more left if closer to the left edge
+        # and more right if closer to the right edge
+        slant = (xoff - 3 + vsk.random(-0.5, 0.5)) * (1 - (yoff - length) / 4) * self.slant
+        tail_points = [
+            (xoff - r / 8, yoff),
+            (xoff - slant - r / 16, yoff - length),
+            (xoff - slant + r / 16, yoff - length),
+            (xoff + r / 8, yoff),
+        ]
+        return [shapely.Polygon(star_points), shapely.Polygon(tail_points)]
 
-    def circles(self, vsk, count):
-        circles = []
+    def stars(self, vsk, count):
+        stars = []
         for i in range(count):
             again = True
             while again:
-                x = vsk.random(6)
-                y = vsk.random(4)
-                r = vsk.random(self.min_radius, self.max_radius)
-                circle = (x, y, r)
-                if (not any([circles_intersect(circle, c) for c in circles])):
-                    circles.append(circle)
+                [star, tail] = self.star(vsk)
+                startail = star.union(tail)
+                if (all(startail.disjoint(s) for s in stars) and (not self.box or star.within(self.border))):
+                    stars.append(startail)
                     again = False
-        return circles
+        return stars
 
     def draw(self, vsk: vsketch.Vsketch) -> None:
         vsk.size("6in", "4in", center=False)
@@ -61,13 +79,13 @@ class Ptpx2023Sketch(vsketch.SketchClass):
         points = np.vectorize(lambda c: shapely.Point(c.real, c.imag))(grid + noise)
 
         lines = shapely.MultiLineString([shapely.LineString(row) for row in points])
-        circles = shapely.union_all([shapely.Point(x, y).buffer(r) for (x, y, r) in self.circles(vsk, self.stars)])
-        stars = shapely.union_all([self.star(x, y, r, vsk.random(math.pi)) for (x, y, r) in self.circles(vsk, self.stars)])
+        stars = shapely.union_all(self.stars(vsk, self.num_stars))
 
         vsk.geometry(lines.difference(stars))
 
     def finalize(self, vsk: vsketch.Vsketch) -> None:
-        vsk.vpype("linemerge linesimplify reloop linesort")
+#        vsk.vpype("linemerge linesimplify reloop linesort")
+        vsk.vpype("linemerge linesimplify")
 
 
 if __name__ == "__main__":
